@@ -1,0 +1,4 @@
+# outputs: trace fits, extraction products and caches (lib/paths.py)
+output/
+__pycache__/
+.ipynb_checkpoints/
