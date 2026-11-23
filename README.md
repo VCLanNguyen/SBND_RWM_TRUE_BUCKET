@@ -17,7 +17,7 @@ lib/
   ad_trace.py          IFBeam queries, raw-trace store, Step 1 trace fit
   segments.py          time chunks and segments from the calibration CSV, traces per segment
   ad_response.py       R_AD (cable, scope, echoes, taps, 1 MΩ H), true-bucket shape, forward fit
-  true_bucket.py       Steps 2-6 over the full train, errors, products on disk
+  true_bucket.py       Steps 2-6 over the whole spill, errors, products on disk
   plot_helpers.py      figures: segment colours, style
   paths.py             input / output paths (`set_paths`), CSV writer
 inputs/
@@ -89,7 +89,7 @@ Run order as listed; each notebook reads the outputs of the ones before it.
 
 | Column | Meaning |
 |---|---|
-| `run`, `seg`, `period`, `head_first` | segment, its AD config, first slot of the head group |
+| `run`, `seg`, `period`, `head_first` | segment, its AD config, first bucket of the head group (1-based: 6 = bucket k = 5) |
 | `sl`, `sr`, `bl`, `br` | shape of b: σL, σR [ns], βL, βR (agg2 fitted to the mixture) |
 | `rms`, `rms_left`, `rms_right` | RMS of b, and per side [ns] |
 | `side_L`, `side_R`, `LmR` | side RMS about the mean [ns], 2 × left − 2 × right semi-variance [ns²] |
