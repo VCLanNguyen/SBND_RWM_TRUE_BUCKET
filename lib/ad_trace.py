@@ -20,7 +20,7 @@ from scipy.signal import find_peaks
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # edge buckets: partly filled buckets just outside the 81-window (Bucket Filling study)
-EDGE_MAX_SLOTS = 2          # per side
+EDGE_MAX_BUCKETS = 2        # per side
 EDGE_MIN_OCCUPANCY = 0.1    # AD only: peak / median core amplitude (AD empty / partial dip)
 
 
@@ -42,8 +42,8 @@ def find_dynamic_buckets(hist, centers, expected_n=81, min_distance=9, window=8)
     """Find `expected_n` evenly spaced buckets in `hist`.
     - Height-cut search over loosening steps; median spacing merges double detections
     - Exactly `expected_n` found is kept only if evenly spaced (`_regular_spacing`), else the comb decides
-    - 84 RF slots, 81 filled: weak satellites sit just outside, so one height cut fails at the margin
-    - Returns the `expected_n` contiguous comb slots with the most counts (`_select_best_window`)
+    - 84 RF buckets, 81 filled: weak satellites sit just outside, so one height cut fails at the margin
+    - Returns the `expected_n` contiguous comb grid points with the most counts (`_select_best_window`)
     - No gap-fill: `_require_good_buckets` raises instead
     """
     noise = np.std(hist)
@@ -110,7 +110,7 @@ def _regular_spacing(positions, lo=0.6, hi=1.4):
 
 
 def _select_best_window(hist, centers, buckets, expected_n, window, margin=4):
-    """Comb at the median spacing, `margin` slots past each end; the `expected_n` contiguous slots with the most counts, or None."""
+    """Comb at the median spacing, `margin` grid points past each end; the `expected_n` contiguous grid points with the most counts, or None."""
     spacing = np.median(np.diff(centers[buckets]))
     if not np.isfinite(spacing) or spacing <= 0:
         return None
@@ -118,20 +118,20 @@ def _select_best_window(hist, centers, buckets, expected_n, window, margin=4):
     grid = centers[buckets[0]] - margin * spacing + spacing * np.arange(
         len(buckets) + 2 * margin)
 
-    slots = []
+    points = []
     for pos in grid:
         nbhd = np.where(np.abs(centers - pos) < 0.4 * spacing)[0]
         if len(nbhd) == 0:
             continue
         best = nbhd[np.argmax(hist[nbhd])]
         count = hist[max(0, best - window):best + window].sum()
-        slots.append((best, count))
+        points.append((best, count))
 
-    if len(slots) < expected_n:
+    if len(points) < expected_n:
         return None
 
-    idxs = np.array([s[0] for s in slots])
-    counts = np.array([s[1] for s in slots], dtype=float)
+    idxs = np.array([s[0] for s in points])
+    counts = np.array([s[1] for s in points], dtype=float)
     window_sums = np.array([counts[i:i + expected_n].sum()
                              for i in range(len(counts) - expected_n + 1)])
     best_start = np.argmax(window_sums)
@@ -205,8 +205,8 @@ def unwrap_bucket0(bucket0, period):
 
 def add_window_offset(df, time_col='start', good=None):
     """`window_offset` + `intercept` / `intercept_err` columns, frame fixed over the rows (`unwrap_bucket0` of `line0`, `time_col` order).
-    - `window_offset`: slot of fit index 0; physical slot = fit index (or edge slot) + `window_offset`; same number = same bucket in every row
-    - `intercept`: period line at slot 0 of the fixed frame = `line0` − `window_offset` · period; error from the line covariance
+    - `window_offset`: fixed-frame bucket number of fit index 0; fixed-frame bucket number = fit index (or edge index) + `window_offset`; same number = same bucket in every row
+    - `intercept`: period line at bucket 0 of the fixed frame = `line0` − `window_offset` · period; error from the line covariance
       (= spill position from all 81 buckets: no one-period window jumps, not pulled by a half-filled first bucket)
     - `good`: rows to unwrap over (default all); others get NA
     """
@@ -430,20 +430,20 @@ def stacked_profile(t, s, positions, period, valid=None, bin_ns=0.16):
     return ((edges[:-1] + edges[1:]) / 2)[ok], num[ok] / cnt[ok], cnt[ok]
 
 
-EDGE_WIDTH = 2 * EDGE_MAX_SLOTS
-EDGE_ARRAY_KEYS = ('edge_slots', 'edge_positions', 'edge_pos_err', 'edge_amp', 'edge_sigma')
+EDGE_WIDTH = 2 * EDGE_MAX_BUCKETS
+EDGE_ARRAY_KEYS = ('edge_index', 'edge_positions', 'edge_pos_err', 'edge_amp', 'edge_sigma')
 
 
 def _fit_edge_buckets(t, s, valid, half, line, n_core, amp_ref, model):
     """Partly filled buckets outside the core 81 on one trace → dict of `EDGE_ARRAY_KEYS`, `EDGE_WIDTH` wide, NaN-padded.
-    - Slots −1, −2 … / 81, 82 … at the period line `line` = (period, intercept); walk outward, stop at the first slot
+    - Candidate bucket indices k = −1, −2 … / 81, 82 … at the period line `line` = (period, intercept); walk outward, stop at the first candidate
       with peak < `EDGE_MIN_OCCUPANCY` × `amp_ref`, a failed `_fit_bucket`, pos err / σ > 5 ns or > 0.3 period off the line
     """
     period, intercept = line
     found = []
-    for side in (np.arange(-1, -EDGE_MAX_SLOTS - 1, -1), np.arange(n_core, n_core + EDGE_MAX_SLOTS)):
-        for slot in side:
-            pred = intercept + period * slot
+    for side in (np.arange(-1, -EDGE_MAX_BUCKETS - 1, -1), np.arange(n_core, n_core + EDGE_MAX_BUCKETS)):
+        for kc in side:
+            pred = intercept + period * kc
             p = int(np.argmin(np.abs(t - pred)))
             if p - half < 0 or p + half > len(s):
                 break
@@ -457,7 +457,7 @@ def _fit_edge_buckets(t, s, valid, half, line, n_core, amp_ref, model):
             if not (np.isfinite(perr[2]) and perr[2] <= MAX_POS_ERR and np.abs(popt[3:]).max() <= MAX_SIGMA
                     and abs(popt[2] - pred) <= 0.3 * period):
                 break
-            found.append((slot, popt[2], perr[2], popt[1], np.abs(popt[3:]).mean()))
+            found.append((kc, popt[2], perr[2], popt[1], np.abs(popt[3:]).mean()))
     found.sort()
     out = {k: np.full(EDGE_WIDTH, np.nan) for k in EDGE_ARRAY_KEYS}
     for j, f in enumerate(found):
@@ -525,7 +525,7 @@ def fit_trace(samples, trailer, model='sym'):
         amp_median=np.median(popts[:, 1]), rms=rms,
     )
     edges = _fit_edge_buckets(t, s, valid, half, lp, len(pos), np.median(popts[:, 1]), model)
-    row['n_buckets'] = len(pos) + int(np.isfinite(edges['edge_slots']).sum())
+    row['n_buckets'] = len(pos) + int(np.isfinite(edges['edge_index']).sum())
     per_bucket = dict(peak_positions=pos, peak_pos_err=pos_err, period_resid=resid,
                       bucket_amp=popts[:, 1], bucket_sigma=popts[:, 3],
                       bucket_sigma_r=popts[:, 4] if model == 'asym' else np.full(81, np.nan), **edges)
@@ -557,7 +557,7 @@ def fit_entries(d, model='sym', **meta):
 
 def add_qc(fits):
     """`qc` column: 'good'; else the fit failure, or 'stuck readout' (trace bytes identical to another trace).
-    - `window_offset` + `intercept` (good traces, time order, `add_window_offset`): trace-frame slot of bucket 0 and the period line
+    - `window_offset` + `intercept` (good traces, time order, `add_window_offset`): trace-frame bucket number of bucket 0 and the period line
       there; a trace-frame jump (06-05 Run 2: 167 → 67 ns) shows up as a multi-bucket offset
     - `firstpeak` (bucket-0 fit) kept per trace as a check; chunk tables + plots use `intercept`
     """

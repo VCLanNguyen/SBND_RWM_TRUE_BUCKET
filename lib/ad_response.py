@@ -99,7 +99,7 @@ def rt_group(P):
 
 
 def trace_profiles(w, g, buckets=None):
-    """Stacked profile per trace on `g.x` / median bucket amplitude, from the buckets `slots` (bool mask over `N_BUCKETS`, None = all) of the per-bucket histograms `w` (`true_bucket.corrected_histograms`)."""
+    """Stacked profile per trace on `g.x` / median bucket amplitude, from the buckets `buckets` (bool mask over `N_BUCKETS`, None = all) of the per-bucket histograms `w` (`true_bucket.corrected_histograms`)."""
     S, N = (w['S'], w['N']) if buckets is None else (w['S'][:, buckets], w['N'][:, buckets])
     num, cnt = S.sum(1, dtype=float), N.sum(1, dtype=float)
     prof = np.empty((len(num), g.nb))

@@ -13,7 +13,7 @@ true_bucket/
   true_bucket.ipynb    Steps 2-6: reflections removed, 4 groups, R_AD, forward fit → b per segment
   errors.ipynb         Step 6 item 3: total errors of b + cross-segment covariance
   results.ipynb        results table and figure (tech note Tab. / Fig. "Extraction Results")
-  figures.ipynb        tech note figures of Steps 1-6 and the appendix (every AD config and segment)
+  figures.ipynb        tech note figures of Steps 1-6 and of the appendix "True Bucket Extraction per Segment"
 lib/
   ad_trace.py          IFBeam queries, raw-trace store, Step 1 trace fit
   segments.py          time chunks and segments from the calibration CSV, traces per segment
@@ -110,4 +110,4 @@ Run order as listed; each notebook reads the outputs of the ones before it.
 
 - Segments and time chunks: in SBND_RWM_CALIBRATION (then rerun from `true_bucket`); segment number → name: `lib/segments.py` `SEGMENT_NAMES`
 - AD configs (dates, scope input): `AD_CONFIGS`, `AD_TERMINATION` in `lib/ad_response.py`
-- Fit window, b conditions, s²: `AD_FWD_N`, `AD_B_COND`, `AD_B_S2` in `lib/ad_response.py`; error variants: `FT_*` constants in `lib/true_bucket.py`, Setup cell of `errors.ipynb`
+- Fit window, b conditions, s²: `AD_FWD_N`, `AD_B_COND`, `AD_B_S2` in `lib/ad_response.py`; error variants: `TB_*` constants in `lib/true_bucket.py`, Setup cell of `errors.ipynb`

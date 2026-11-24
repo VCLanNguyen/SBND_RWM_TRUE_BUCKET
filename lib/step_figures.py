@@ -1,6 +1,6 @@
-"""Tech note figures of the extraction steps (Sec. 7.3 and Appendix C), from the outputs of `true_bucket.ipynb`.
+"""Tech note figures of the extraction steps (Sec. "Extraction Steps" and the appendix "True Bucket Extraction per Segment"), from the outputs of `true_bucket.ipynb`.
 
-- `FigureInputs`-style dict `I` (built in `figures.ipynb`): DATA (`segment_inputs`), TERM (`load_ad_term`), TAILS (`load_tails` + `yc` = corrected tail),
+- Dict `I` (built in `figures.ipynb`): DATA (`segment_inputs`), TERM (`load_ad_term`), TAILS (`load_tails` + `yc` = corrected tail),
   RMOD (`reflection_models`), W / WB (per-bucket histograms before / after Step 2), CTX (`tb_context`, fitted), FIT (`tb_fits` per segment), PKEYS (segments per AD config)
 - Every function draws one figure, saves it as `<out>/<name>` and prints the numbers quoted in the tech note
 """
