@@ -4,7 +4,7 @@
 - Store = one npz per DAQ run (`store_path`), key (run, event, ts_ns); event −1 = time-sampled trace (query time ts_ns), else the trace matched
   to an SBND event (record `CLOCK_OFFSET_MS` before the event time); `status` 0 = no IFBeam record
 - `ensure` queries IFBeam only for keys not in the store (`fetch_trace` for SBND events, `fetch_trace_at` for time-sampled keys)
-- `fit_trace` (Step 1): baseline, 81 buckets, per-bucket fits, period line, overlay σ, guards; clipped samples (`ADC_MAX`) left out of every fit
+- `fit_trace` (Step 1): baseline, 81 buckets, per-bucket fits, period line, σ of the stacked buckets, guards; clipped samples (`ADC_MAX`) left out of every fit
 """
 import os
 import hashlib
@@ -140,7 +140,7 @@ def _select_best_window(hist, centers, buckets, expected_n, window, margin=4):
 
 def _fit_gaussian_windowed(bins_mid, hist, raw_counts, guess, window_sigma, min_window_bins=8, poisson_weight=False):
     """Gaussian fit, then refit within `window_sigma`·sigma of the center; returns (popt, pcov, mask).
-    - Avoids bucket bowing ('fold') and the truncation edge ('overlay'); full fit if < `min_window_bins`
+    - Keeps the bucket tails / histogram edge out of the fit; full fit if < `min_window_bins`
     - Poisson weights from `raw_counts`, scaled to the density `hist`
     """
     if poisson_weight:
@@ -191,7 +191,7 @@ def line_terms(popt, pcov):
 def unwrap_bucket0(bucket0, period):
     """Rows in time order → (phase-continuous bucket-0 value, window offset in buckets); bucket0 = unwrapped + offset · period.
     - The 81-window can start one bucket early / late (partly filled edge buckets) → the bucket-0 value jumps by one period
-    - Row to row, a jump > period / 2 = window shift; smaller = real phase step (Run 1 04-23 → −8.5 ns, LLRF step −8.2)
+    - Row to row, a jump > period / 2 = window shift; smaller = real phase step (e.g. Run 1 LLRF switch 04-23, −8.5 ns)
     - Offsets are relative to the first row's window
     """
     fp, P = np.asarray(bucket0, float), np.asarray(period, float)
@@ -413,7 +413,7 @@ def _fit_bucket(t, s, valid, p, half, model):
 
 
 def overlay_profile(t, s, positions, period, valid=None, bin_ns=0.16):
-    """Mean waveform vs time to the nearest bucket position, ±period/2 (the waveform analogue of the SBND overlay).
+    """Mean waveform vs time to the nearest bucket position, ±period/2 (the waveform analogue of the SBND stacked bunch).
     - `valid`: sample mask (clipped samples left out of the mean)
     """
     xp = np.asarray(positions)
@@ -468,7 +468,7 @@ def _fit_edge_buckets(t, s, valid, half, line, n_core, amp_ref, model):
 
 def fit_trace(samples, trailer, model='sym'):
     """Per-trace calibration; returns (row dict, per-bucket dict) or raises ValueError with the reason.
-    - `model`: per-bucket shape for the positions ('sym' | 'asym'); overlay is fit with both
+    - `model`: per-bucket shape for the positions ('sym' | 'asym'); the stacked buckets are fit with both
     """
     dt_ns = trailer[-1] * 1e9 if len(trailer) and 1e-11 < trailer[-1] < 1e-9 else 0.16
     t = np.arange(len(samples)) * dt_ns

@@ -1,10 +1,10 @@
 """AD hardware response R_AD and the true-bucket fit machinery (Steps 4-5).
 
 - Model: periodic fine grid over one bunch period (`Grid`), kernels indexed by lag, circular convolution by FFT
-- R_AD per AD configuration period (`AD_PERIODS`): cable skin effect ⊗ scope low-pass ⊗ echoes ⊗ (δ + correction taps); AD config 2.1 (1 MΩ) = the
+- R_AD per AD config (`AD_PERIODS`): cable skin effect ⊗ scope low-pass ⊗ echoes ⊗ (δ + correction taps); AD config 2.1 (1 MΩ) = the
   50 Ω response ⊗ H (`AD_H1M`, `fit_ad_h1m`)
 - True bucket b = asymmetric generalised Gaussian 'agg2' (σL, σR, βL, βR; `bunch_shape`), fitted forward: A · rebin(b ⊗ R_AD) in ±`AD_FWD_N` σ_AD
-- Train-end probes (`ad_term_products`): b-free round-trip transfer per AD config from every stored trace (Step 2)
+- End-of-spill probes (`ad_term_products`): b-free round-trip transfer per AD config from every stored trace (Step 2)
 """
 import glob
 
@@ -25,7 +25,7 @@ SIG_SCOPE = 0.133 / 0.5            # MSO54 500 MHz → Gaussian σ [ns]
 F_SCOPE = 0.5                      # MSO54 band limit [GHz] (`scope_kernel` low-pass forms)
 AD_SCOPE_FORM = 'butter6'          # scope response of the AD fits (causal Butterworth at `F_SCOPE`)
 ECHOES = (0.0150, 9.98, -0.0310, 14.16, 0.0083, 12.70)
-ECHO_SETS = {                      # δ echoes (amplitude, delay [ns]) × 3 per AD period, fitted per period unfolded / folded: echo-model variants of the errors only
+ECHO_SETS = {                      # δ echoes (amplitude, delay [ns]) × 3 per AD config, two fit methods: echo-model variants of the errors only
     'unfolded': {'Run 1.1': (0.0143, 9.43, -0.0518, 13.94, 0.0127, 12.42), 'Run 1.3': (0.0115, 9.11, -0.0368, 14.27, 0.0114, 11.93),
                  'Run 2.1': (0.0108, 7.32, -0.0409, 14.03, 0.0400, 12.15)},
     'folded': {'Run 1.1': (0.0127, 9.40, -0.0705, 13.74, 0.0536, 12.68), 'Run 1.3': (0.0111, 9.01, -0.0643, 13.87, 0.0476, 12.53),
@@ -37,10 +37,10 @@ AD_BOOT = 200                      # `ad_bootstrap` chunk resamples per segment 
 AD_BOOT_MIN_CHUNKS = 8             # `ad_bootstrap` 'auto': fewer chunks → trace-level resampling (chunk bootstrap degenerate)
 AD_FWD_N = 2.5                     # `ad_fit_fwd` nominal window ±n · σ_AD: the full RMS (the width b is quoted by) needs ±2.5 σ (narrower windows extrapolate the core shape)
 AD_B_MIN = 1.8                     # lower bound of βL, βR of the AD b fits (`AD_PAR`): b tuned on SBND data has β 1.85-2.35, lowest − 2 σ = 1.82
-AD_B_COND = dict(beta=(AD_B_MIN, 2.4), rmax=1.0, pos=0.3, shared=True)     # conditions of the full-train b (`ad_cond_fits`): βL, βR range; σL / σR ≤ rmax; |mean of b + kernel mean − block centroid| ≤ pos [ns]; βL, βR, σL / σR shared along the train (width, x₀, A per group)
-AD_B_S2 = {'Run 1.1': 0.0, 'Run 1.3': 0.0, 'Run 2.1': 0.175, 'Run 2.2': 0.0}   # symmetric width added to the full-train b per AD period [ns²] (`b_smear`): corrects the 1 MΩ kernel H only (H as fitted, τ_in not measurable on the AD), 50 Ω = 0; tuned on the SBND ±2.5σ windowed variance (AD-matched, ⊗ D_ν) so the mean Run 2.1 σ_det² step vs the error-weighted mean of the five 50 Ω segments (SBND ⊕ AD b stat) is zero; effective, not an AD measurement
+AD_B_COND = dict(beta=(AD_B_MIN, 2.4), rmax=1.0, pos=0.3, shared=True)     # conditions of the true bucket b (`ad_cond_fits`): βL, βR range; σL / σR ≤ rmax; |mean of b + kernel mean − group centroid| ≤ pos [ns]; βL, βR, σL / σR shared along the spill (width, x₀, A per group)
+AD_B_S2 = {'Run 1.1': 0.0, 'Run 1.3': 0.0, 'Run 2.1': 0.175, 'Run 2.2': 0.0}   # symmetric width added to the true bucket b per AD config [ns²] (`b_smear`): corrects the 1 MΩ kernel H only (H as fitted, τ_in not measurable on the AD), 50 Ω = 0; tuned on the SBND ±2.5σ windowed variance (AD-matched, ⊗ D_ν) so the mean AD config 2.1 σ_det² step vs the error-weighted mean of the five 50 Ω segments (SBND ⊕ AD b stat) is zero; effective, not an AD measurement
 AD_B_TIE = False                   # AD agg2 b fits (`ad_fit_fwd`, `fit_ad_taps`, `group_mixture`): True = βL = βR one β per segment, False = βL, βR free per side
-AD_H1M_HANDLE = ((2, 'normal_a'), (2, 'normal_b'))   # 1 MΩ handle: Run 2 normal_a (Run 2.1 traces, 1 MΩ) vs normal_b (Run 2.2, 50 Ω)
+AD_H1M_HANDLE = ((2, 'normal_a'), (2, 'normal_b'))   # 1 MΩ handle: Run 2 normal_a (AD config 2.1 traces, 1 MΩ) vs normal_b (AD config 2.2, 50 Ω)
 AD_H1M = dict(period='Run 2.1', base='Run 2.2', n_echo=3, t_echo=(2.5, 16.0), half=9.4)
 """1 MΩ kernel H (`h1m_response`, `fit_ad_h1m`): R_AD(period) = R_AD(base) ⊗ H; H fitted on the raw Normal handle (2.1 vs 2.2 traces) on |x − peak| ≤ half,
 `n_echo` echo differences on lags `t_echo` [ns]; τ_in = `RC_TAU[period]` (datasheet capacitance, the handle cannot separate τ_in from the beam change);
@@ -54,29 +54,29 @@ TAP_SETS = {'nominal': {}, 'strong': dict(lam=1000.0, mu=30.0), 'from5': dict(ta
 AD_TAPS_SHARE = {'Run 1.1': '50 Ω', 'Run 1.2': '50 Ω', 'Run 1.3': '50 Ω', 'Run 2.2': '50 Ω'}
 AD_TAPS_PROC = '3b'                # `fit_ad_taps` procedure: '3b' = b per segment from the ±`AD_FWD_N` σ_AD window only, alternating with the taps on the full period (outside-window structure → shared taps, never b); 'joint' = b and taps fitted together on the full period
 AD_TAPS_3B_TOL, AD_TAPS_3B_MAX = 5e-5, 40   # 3b outer loop: max |Δ tap| to stop, max iterations
-"""Taps groups of `fit_ad_taps` (period → group; periods not listed: own taps): one taps set for every 50 Ω period (same RWM → Heliax → splitter →
-MSO54 chain in Run 1 and Run 2), fitted on all their segments together (b per segment free) → separable from the b tails also for one-segment periods;
-no vertical-scale (V / count) term: echo amplitude × f null in Run 1.3 (0.94 ± 0.06) and in the Run 2.2 control (0.92 ± 0.08), scope σ degenerate with
-the taps; Run 2.1 (1 MΩ) = the 50 Ω set ⊗ H (`AD_H1M`)"""
+"""Taps groups of `fit_ad_taps` (AD config → group; AD configs not listed: own taps): one taps set for every 50 Ω AD config (same RWM → Heliax → splitter →
+MSO54 chain in Run 1 and Run 2), fitted on all their segments together (b per segment free) → separable from the b tails also for one-segment AD configs;
+no vertical-scale (V / count) term: echo amplitude × f null in AD config 1.3 (0.94 ± 0.06) and in the AD config 2.2 control (0.92 ± 0.08), scope σ degenerate with
+the taps; AD config 2.1 (1 MΩ) = the 50 Ω set ⊗ H (`AD_H1M`)"""
 RESP_ITER = 20                     # alternating iterations of `fit_ad_taps`
 N_SLOTS = 81                       # filled buckets per AD trace (core batch)
-AD_SKIP_SLOTS = (0, 20)            # bucket slots left out of the AD blocks: slot 1 = first bunch of the spill (after the notch), no bunch one period earlier (periodic deconvolution needs one); slot 21 = hit by the cable round trip (2 × `CABLE_DELAY` = 21 P − 1.5 ns) of the partial edge bucket before slot 1
-OV_BINS = 121                      # overlay bins per bucket (BIN_NS, ± P / 2; padded)
-N_GROUPS = 4                       # round-trip groups: slots 1-21, 22-42, 43-63, 64-81 (`rt_group`)
-AD_PERIODS = {                     # AD configuration periods (lasting amplitude steps or a scope-input change in the traces)
-    'Run 1.1': ('2025-01-01', '2025-04-07 18:00'),        # amplitude ~110-125 (before / during)
+AD_SKIP_SLOTS = (0, 20)            # buckets left out of the groups: k = 0 = first bunch of the spill (after the notch), no bunch one bunch period earlier; k = 20 = reached by the cable round trip (2 × `CABLE_DELAY` = 21 P − 1.5 ns) of the partial edge bucket before k = 0
+OV_BINS = 121                      # histogram bins per bucket (BIN_NS, ± P / 2; padded)
+N_GROUPS = 4                       # round-trip groups: buckets k = 0-20, 21-41, 42-62, 63-80 (`rt_group`)
+AD_PERIODS = {                     # AD configs (lasting amplitude steps or a scope-input change in the traces)
+    'Run 1.1': ('2025-01-01', '2025-04-07 18:00'),        # amplitude ~110-125 (Before Rotation A-C, Rotation)
     'Run 1.2': ('2025-04-07 18:00', '2025-05-12 17:00'),  # ~165, clipped (no traces used)
-    'Run 1.3': ('2025-05-12 17:00', '2025-10-01'),        # ~65-70 (after)
-    'Run 2.1': ('2025-10-01', '2026-05-15'),              # ~60-65 (wide / normal / narrow)
-    'Run 2.2': ('2026-05-15', '2027-01-01')}              # ~180 (normal, June 2026)
+    'Run 1.3': ('2025-05-12 17:00', '2025-10-01'),        # ~65-70 (After Rotation)
+    'Run 2.1': ('2025-10-01', '2026-05-15'),              # ~60-65 (Wide, Normal A, Narrow)
+    'Run 2.2': ('2026-05-15', '2027-01-01')}              # ~180 (Normal B, June 2026)
 AD_TERMINATION = {'Run 1.1': '50 Ω', 'Run 1.2': '50 Ω', 'Run 1.3': '50 Ω', 'Run 2.1': '1 MΩ', 'Run 2.2': '50 Ω'}
-"""Scope input termination per AD period (per-trace scan): gain per proton (V·ns / 1e12 p, Σ slot-2-20 area ×
-V/count ÷ E:TOR860) ≈ 18 in Run 1 (V/count 0.008 / 0.02 / 0.004) and June 2026 (0.008), ≈ 36 (× 2) in Run 2.1 (0.04) = unterminated input; Run 2.1
-round trip (slots after the train end ÷ their source buckets) ≈ −0.2 … −0.33 vs ≈ −0.01 at 50 Ω; 1 MΩ → 50 Ω inside the AD gap 2026-04-27 → 06-05."""
+"""Scope input termination per AD config (per-trace scan): gain per proton (V·ns / 1e12 p, Σ area of buckets k = 1-19 ×
+V/count ÷ E:TOR860) ≈ 18 in Run 1 (V/count 0.008 / 0.02 / 0.004) and June 2026 (0.008), ≈ 36 (× 2) in AD config 2.1 (0.04) = unterminated input; AD config 2.1
+round trip (buckets after the end of the spill ÷ their source buckets) ≈ −0.2 … −0.33 vs ≈ −0.01 at 50 Ω; 1 MΩ → 50 Ω inside the AD gap 2026-04-27 → 06-05."""
 Z0 = 50.0                          # splitter output / cable impedance [Ω]
 C_IN_1M = 13.0e-3                  # scope input capacitance at 1 MΩ [nF] (MSO54: 13.0 ± 1.5 pF typical, Tektronix 5 Series MSO datasheet)
 RC_TAU = {pn: Z0 * C_IN_1M if t == '1 MΩ' else 0.0 for pn, t in AD_TERMINATION.items()}
-"""Input-RC time constant per AD period [ns]: 1 MΩ = matched source (Z0) into C_IN_1M → causal exp(−t / τ), τ = 0.65 ns (below the 4 ns taps);
+"""Input-RC time constant per AD config [ns]: 1 MΩ = matched source (Z0) into C_IN_1M → causal exp(−t / τ), τ = 0.65 ns (below the 4 ns taps);
 50 Ω: ≈ 0.1 ns, inside `SIG_SCOPE` → 0."""
 SEGMENTS = [(1, 'before_a'), (1, 'before_c'), (1, 'during'), (1, 'after'), (2, 'wide'), (2, 'normal_a'), (2, 'normal_b'), (2, 'narrow')]   # stable segments of the calibration (Run 1 Before Rotation B is unstable: no b)
 SEG_NAMES = {'before_a': 'Before Rotation A', 'before_b': 'Before Rotation B', 'before_c': 'Before Rotation C', 'during': 'During Rotation', 'after': 'After Rotation',
@@ -85,7 +85,7 @@ SEG_TITLE = {(r, s): f'Run {r} {SEG_NAMES[s]}' for r, s in SEGMENTS}
 
 
 def ad_period(ts):
-    """AD configuration period name (`AD_PERIODS`) per timestamp."""
+    """AD config name (`AD_PERIODS`) per timestamp."""
     ts = pd.to_datetime(np.atleast_1d(ts))
     out = np.full(len(ts), '', dtype=object)
     for name, (a, b) in AD_PERIODS.items():
@@ -94,12 +94,12 @@ def ad_period(ts):
 
 
 def rt_group(P):
-    """Round-trip group per bucket slot (0 … `N_GROUPS` − 1): number of cable round trips 2 `CABLE_DELAY` already arrived from earlier buckets."""
+    """Round-trip group per bucket k (0 … `N_GROUPS` − 1): number of cable round trips 2 `CABLE_DELAY` already arrived from earlier buckets."""
     return np.minimum(np.arange(N_SLOTS) // int(round(2 * CABLE_DELAY / P)), N_GROUPS - 1)
 
 
 def trace_profiles(w, g, slots=None):
-    """Overlay profile per trace on `g.x` / median bucket amplitude, from the slots `slots` (bool mask over `N_SLOTS`, None = all) of the overlays `w` (`true_bucket.ad_waveforms_bootstrap`)."""
+    """Stacked profile per trace on `g.x` / median bucket amplitude, from the buckets `slots` (bool mask over `N_SLOTS`, None = all) of the per-bucket histograms `w` (`true_bucket.ad_waveforms_bootstrap`)."""
     S, N = (w['S'], w['N']) if slots is None else (w['S'][:, slots], w['N'][:, slots])
     num, cnt = S.sum(1, dtype=float), N.sum(1, dtype=float)
     prof = np.empty((len(num), g.nb))
@@ -167,7 +167,7 @@ class Grid:
 
 
 def echoes_of(echoes, period):
-    """Echo set of one AD period: `echoes` = (amplitude, delay, …) tuple for every period, or {period: tuple} (periods without a set: `ECHOES`)."""
+    """Echo set of one AD config: `echoes` = (amplitude, delay, …) tuple for every AD config, or {AD config: tuple} (AD configs without a set: `ECHOES`)."""
     return echoes.get(str(period), ECHOES) if isinstance(echoes, dict) else echoes
 
 
@@ -181,7 +181,7 @@ def echo_kernel(g, echoes=ECHOES):
 
 
 def rc_of(rc, period):
-    """Input-RC τ of one AD period: `rc` = None (0), a number for every period, or {period: τ} (`RC_TAU`)."""
+    """Input-RC τ of one AD config: `rc` = None (0), a number for every AD config, or {AD config: τ} (`RC_TAU`)."""
     if rc is None:
         return 0.0
     return float(rc.get(str(period), 0.0)) if isinstance(rc, dict) else float(rc)
@@ -239,7 +239,7 @@ def _resp_fft(pr, m, c, r, refl=True):
 
 
 def ad_blocks(d, K=None, period=None, groups=None):
-    """Segment `d` and its R_AD blocks `K` [block, fine lag] (None: none) restricted to one configuration `period` and round-trip `groups` (None = all)."""
+    """Segment `d` and its R_AD groups `K` [group, fine lag] (None: none) restricted to one AD config `period` and round-trip `groups` (None = all)."""
     m = np.ones(len(d['blk_m']), bool)
     if period is not None:
         m &= d['blk_period'] == period
@@ -249,11 +249,11 @@ def ad_blocks(d, K=None, period=None, groups=None):
 
 
 def ad_kernels_periods(D, keys, resps, echoes=ECHOES, bl=BL, sig_scope=None, rc=RC_TAU, h1m=None):
-    """R_AD per segment and block {key: [block, fine lag]} = cable ⊗ scope ⊗ input RC ⊗ echoes ⊗ (δ + taps), taps from `resps` {period: `fit_ad_response` set}
-    (each period its own set; no round-trip reflection: for slot-2-20 blocks); `echoes` (tuple or {period: tuple}, `echoes_of`), `bl`, `sig_scope`,
-    `rc` (τ or {period: τ}, `rc_of`): hardware variations.
-    - `h1m` {period: (base period, H parameters)}: that period's R_AD = R_AD(base) ⊗ H (`h1m_response`; H carries the input RC τ_in), e.g. the 1 MΩ
-      Run 2.1 from the 50 Ω Run 2.2 (`AD_H1M`, `fit_ad_h1m`)"""
+    """R_AD per segment and group {key: [group, fine lag]} = cable ⊗ scope ⊗ input RC ⊗ echoes ⊗ (δ + taps), taps from `resps` {AD config: `fit_ad_response` set}
+    (each AD config its own set; no round-trip reflection: for head groups); `echoes` (tuple or {AD config: tuple}, `echoes_of`), `bl`, `sig_scope`,
+    `rc` (τ or {AD config: τ}, `rc_of`): hardware variations.
+    - `h1m` {AD config: (base AD config, H parameters)}: that AD config's R_AD = R_AD(base) ⊗ H (`h1m_response`; H carries the input RC τ_in), e.g. the 1 MΩ
+      AD config 2.1 from the 50 Ω AD config 2.2 (`AD_H1M`, `fit_ad_h1m`)"""
     out = {}
     for k in keys:
         d = D[k]
@@ -273,16 +273,16 @@ def ad_kernels_periods(D, keys, resps, echoes=ECHOES, bl=BL, sig_scope=None, rc=
 
 def fit_ad_taps(D, keys, tap_min=TAP_MIN, tap_end=TAP_END, lam=TAP_LAM, mu=TAP_MU, n_iter=RESP_ITER, scope=AD_SCOPE_FORM, echoes=ECHOES, rc=RC_TAU,
                 share=AD_TAPS_SHARE, sig_scope=None, proc=None):
-    """R_AD correction taps per taps group (`share`: period → group, default `AD_TAPS_SHARE`; None or unlisted period = its own group):
-    - per group: taps c on lags `tap_min` … P − `tap_end` shared by all blocks of all `keys` segments in the group's periods (smoothness `lam`, ridge `mu`);
-      b = agg2 per segment (σL, σR, β; βL = βR when `AD_B_TIE`, else βL, βR free); per block x0, amplitude; no floor / flat term, no round-trip
-      reflection (slot-2-20 blocks); full period
-    - alternating: taps given b (linear), b + x0 / amplitude given taps; errors scaled so the fit without taps has χ²/n = 1 per block 
+    """R_AD correction taps per taps group (`share`: AD config → group, default `AD_TAPS_SHARE`; None or unlisted AD config = its own group):
+    - per group: taps c on lags `tap_min` … P − `tap_end` shared by all groups of all `keys` segments in the group's AD configs (smoothness `lam`, ridge `mu`);
+      b = agg2 per segment (σL, σR, β; βL = βR when `AD_B_TIE`, else βL, βR free); per group x0, amplitude; no floor / flat term, no round-trip
+      reflection (head groups); full bunch period
+    - alternating: taps given b (linear), b + x0 / amplitude given taps; errors scaled so the fit without taps has χ²/n = 1 per group 
     - a group with one segment: taps and that segment's b tails are not separable (taps fitted on its own data)
-    - `echoes`: one (amplitude, delay) tuple for every period, or {period: tuple} (`echoes_of`); `rc`: input-RC τ or {period: τ} (`rc_of`);
-      `sig_scope`: scope σ for every period, or {period: σ} (others `SIG_SCOPE`)
-    - returns dict(taus, rlags, scope, C {period} (the group's taps), rho {period} (zeros), chi {period: χ²/n end of its group}, segs {period: its
-      segments}, group {period: group}, chi2 {group: χ² end (scaled errors)}, nbins {group}) for `ad_kernels_periods`
+    - `echoes`: one (amplitude, delay) tuple for every AD config, or {AD config: tuple} (`echoes_of`); `rc`: input-RC τ or {AD config: τ} (`rc_of`);
+      `sig_scope`: scope σ for every AD config, or {AD config: σ} (others `SIG_SCOPE`)
+    - returns dict(taus, rlags, scope, C {AD config} (the group's taps), rho {AD config} (zeros), chi {AD config: χ²/n end of its group}, segs {AD config: its
+      segments}, group {AD config: group}, chi2 {group: χ² end (scaled errors)}, nbins {group}) for `ad_kernels_periods`
     - `proc` (default `AD_TAPS_PROC`): 'joint' = as above; '3b' = `_fit_ad_taps_3b` (b from the window only), started from the joint taps
     """
     if (AD_TAPS_PROC if proc is None else proc) == '3b':
@@ -312,7 +312,7 @@ def fit_ad_taps(D, keys, tap_min=TAP_MIN, tap_end=TAP_END, lam=TAP_LAM, mu=TAP_M
         segs = sorted({k for k, _ in bl})
         c, q0, w2 = np.zeros(nT), {}, {}
         Dt = np.diff(np.eye(nT), 2, axis=0)
-        for k, i in bl:          # start per block, no taps
+        for k, i in bl:          # start per group, no taps
             Y, E = D[k]['blk_Y'][i], D[k]['blk_E'][i]
             f = least_squares(lambda q: (Y - model(k, b_from_fit(q), q[nb_], q[nb_ + 1], c)) / E, [AD_PAR[n][0] for n in shp] + [0, Y.max() / 4],
                               bounds=(blo + [PAR['xa'][1], 0], bhi + [PAR['xa'][2], PAR['aa'][2]]), x_scale='jac')
@@ -356,7 +356,7 @@ def fit_ad_taps(D, keys, tap_min=TAP_MIN, tap_end=TAP_END, lam=TAP_LAM, mu=TAP_M
 
 def _fit_ad_taps_3b(D, keys, rt, lam, mu, scope, echoes, rc, share, sig_scope, tol=AD_TAPS_3B_TOL, n_max=AD_TAPS_3B_MAX, b_fit=None):
     """3b taps (`fit_ad_taps` proc '3b'): per taps group, outer loop from the joint taps `rt` (same lags / groups): (1) b per segment = `ad_fit_fwd` on the
-    segment's blocks at ±`AD_FWD_N` σ_AD with the current taps; (2) taps on the full period given those b (linear, x0 / amplitude per block refit,
+    segment's groups at ±`AD_FWD_N` σ_AD with the current taps; (2) taps on the full bunch period given those b (linear, x0 / amplitude per group refit,
     smoothness `lam`, ridge `mu`, errors scaled as `fit_ad_taps`); until max |Δ tap| < `tol` → `fit_ad_taps` output (+ n_outer {group}); `b_fit(d, K, n)` (dict with 'p') replaces `ad_fit_fwd` in (1)."""
     share = share or {}
     taus, rlags = rt['taus'], rt['rlags']
@@ -380,7 +380,7 @@ def _fit_ad_taps_3b(D, keys, rt, lam, mu, scope, echoes, rc, share, sig_scope, t
         pn0 = str(D[bl[0][0]]['blk_period'][bl[0][1]])
         c = rt['C'][pn0].copy()
         w2, xa = {}, {}
-        for k, i in bl:          # error scale: χ²/n = 1 per block without taps (b, x0, amplitude free, full period), as `fit_ad_taps`
+        for k, i in bl:          # error scale: χ²/n = 1 per group without taps (b, x0, amplitude free, full bunch period), as `fit_ad_taps`
             f0 = ad_fit_fwd(dict(D[k], **{n: v[i:i + 1] for n, v in D[k].items() if n.startswith('blk_')}), np.real(np.fft.ifft(PR[k]['B']))[None], n=99)
             w2[(k, i)] = 1 / (D[k]['blk_E'][i] * np.sqrt(f0['chi2'] / (f0['ndof'] + f0['npar']))) ** 2
             xa[(k, i)] = tuple(f0['blk'][0])
@@ -500,7 +500,7 @@ def b_from_fit(x):
 
 
 def _ad_q_in(q):
-    # q in the 4-parameter convention (σL, σR, βL, βR, block pars) → fit vector (tied: β = mean(βL, βR))
+    # q in the 4-parameter convention (σL, σR, βL, βR, group pars) → fit vector (tied: β = mean(βL, βR))
     q = np.asarray(q, float)
     return np.r_[q[:2], q[2:4].mean(), q[4:]] if AD_B_TIE else q
 
@@ -533,8 +533,8 @@ _H1M_HI = dict(a=10, s=4, b2=3, tin=3, eps=0.5, ts=30, k3=5)
 
 def fit_ad_h1m(d21, d22, tau_in=None, n_echo=AD_H1M['n_echo'], start=None, half=AD_H1M['half'], t_echo=AD_H1M['t_echo'], skew=False):
     """1 MΩ kernel H from the raw Normal handle (b-free in the instrument part): Y(2.1) = a · Y(2.2) ⊗ shift s ⊗ G(beam² b2) ⊗ H, H = `h1m_response`
-    - `d21`, `d22`: single-block segments (`ad_blocks`, slots 2-20) of the two periods; diagonal χ² (E21² + a² E22²) on |x − peak| ≤ `half`
-    - τ_in fixed (default `RC_TAU[AD_H1M['period']]`); a, s, b2 = nuisances (not part of H: the beam change and alignment between the periods)
+    - `d21`, `d22`: single-group segments (`ad_blocks`, head group) of the two AD configs; diagonal χ² (E21² + a² E22²) on |x − peak| ≤ `half`
+    - τ_in fixed (default `RC_TAU[AD_H1M['period']]`); a, s, b2 = nuisances (not part of H: the beam change and alignment between the AD configs)
     - no `start`: base fit, then `n_echo` echo differences added greedily (T scan on `t_echo`, only the new echo free) and refitted jointly;
       `start` (a previous p): warm joint refit (bootstrap, τ_in variants); fewer echoes in `start` → the rest added greedily, more → the largest |r| kept
     - `skew`: + nuisance k3 [ns³] (asymmetric beam change, exp(i k3 (2πf)³ / 6); not part of H, dropped by `h1m_instrument`; 'H skew' variant of the errors)
@@ -596,9 +596,9 @@ def h1m_instrument(p):
 
 
 def ad_fit_fwd(d, kAD, n=AD_FWD_N, q0=None):
-    """agg2 b forward-folded to the raw AD blocks (no deconvolution): Y_i = A_i · rebin(b(t − x0_i) ⊗ R_AD,i), diagonal χ² (raw bins independent)
-    over ±n σ_AD; b shared (σL, σR, β; βL = βR when `AD_B_TIE`, else βL, βR free), x0 / A per block; no floor / flat term; start values `PAR` (or `q0`)
-    - returns dict(p, e, q, err (q / err: σL, σR, βL, βR, block pars), npar (free), chi2, ndof, blk [block, (x0, A)], M (model per block), wA)"""
+    """Forward fit of agg2 b convolved with R_AD to the AD groups: Y_i = A_i · rebin(b(t − x0_i) ⊗ R_AD,i), diagonal χ² (raw bins independent)
+    over ±n σ_AD; b shared (σL, σR, β; βL = βR when `AD_B_TIE`, else βL, βR free), x0 / A per group; no floor / flat term; start values `PAR` (or `q0`)
+    - returns dict(p, e, q, err (q / err: σL, σR, βL, βR, group pars), npar (free), chi2, ndof, blk [group, (x0, A)], M (model per group), wA)"""
     g = d['grid']
     Y, E = d['blk_Y'], d['blk_E']
     nbk = len(Y)
@@ -629,12 +629,12 @@ def ad_fit_fwd(d, kAD, n=AD_FWD_N, q0=None):
                 M=np.array([model(i, p, *bp[i]) for i in range(nbk)]), wA=wA, kind='forward')
 
 
-TERM_N_RT = 16                     # `ad_term_products`: source bunches per trace (last − 16 … last − 3) for the train-end round trip
+TERM_N_RT = 16                     # `ad_term_products`: source bunches per trace (last − 16 … last − 3) for the end-of-spill round trip
 TERM_U = np.arange(-9.0, 9.0 + 1e-9, 0.04)   # round-trip profile grid [ns] around each bunch
 
 
 def _term_trace(samples, trailer, p_nom=18.935):
-    # one trace → (baseline PSD [counts²], V/count, S(u), R(u) per source bunch, P) or None (clipped / weak / short train)
+    # one trace → (baseline PSD [counts²], V/count, S(u), R(u) per source bunch, P) or None (clipped / weak / short spill)
     v_per, off, dt = trailer
     dt_ns = dt * 1e9 if 1e-11 < dt < 1e-9 else BIN_NS
     if (samples >= at.ADC_MAX).any():
@@ -665,7 +665,7 @@ def _term_trace(samples, trailer, p_nom=18.935):
             kk.append(i)
             tc.append((t[mm] * ww).sum() / ww.sum())
     P, tz = np.polyfit(kk, tc, 1)
-    D = 21 * P - 1.5                                  # round trip (2 × `CABLE_DELAY`) lands 21 slots later
+    D = 21 * P - 1.5                                  # round trip (2 × `CABLE_DELAY`) lands 21 buckets later
     tj = tz + np.arange(idx[-1] - TERM_N_RT, idx[-1] - 2) * P
     tj = tj[(tj + D + TERM_U[-1]) <= t[-1] - 1]
     if len(tj) < 8:
@@ -676,10 +676,10 @@ def _term_trace(samples, trailer, p_nom=18.935):
 
 
 def ad_term_products(path):
-    """b-free AD termination probes per configuration period (`AD_PERIODS`) from every stored raw trace (Run 1 + 2 stores, ~4 min, 0.5 GB) → `path`:
-    - baseline noise PSD: first `at.BASELINE_SAMPLES` samples (before the train), mean removed, Hann window, |FFT|² [counts²] + V/count per trace
-    - train-end round trip: bunch comb fitted per trace (bucket centroids → t0, P); S(u) = mean source bunch (last − `TERM_N_RT` … last − 3),
-      R(u) = the same bunches 21 P − 1.5 ns later (after the train end: no direct bunch there), u = `TERM_U` (linear interpolation)
+    """b-free AD termination probes per AD config (`AD_PERIODS`) from every stored raw trace (Run 1 + 2 stores, ~4 min, 0.5 GB) → `path`:
+    - baseline noise PSD: first `at.BASELINE_SAMPLES` samples (before the spill), mean removed, Hann window, |FFT|² [counts²] + V/count per trace
+    - end-of-spill round trip: bunch comb fitted per trace (bucket centroids → t0, P); S(u) = mean source bunch (last − `TERM_N_RT` … last − 3),
+      R(u) = the same bunches 21 P − 1.5 ns later (after the end of the spill: no direct bunch there), u = `TERM_U` (linear interpolation)
     - S and R hold the same bunches → R / S = round-trip transfer of the scope input + splitter + Heliax + RWM end, independent of b"""
     acc = {}
     for store in (paths.STORE[1], paths.STORE[2]):

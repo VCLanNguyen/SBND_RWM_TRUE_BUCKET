@@ -1,9 +1,9 @@
-"""True bucket b over the full train (Steps 2-6) and its errors (Step 6 item 3).
+"""True bucket b over the whole spill (Steps 2-6) and its errors (Step 6 item 3).
 
-- Step 2, reflections per AD config (b-free): round trip (RWM ↔ scope over the Heliax, 2 × 198 ns = 21 P − 1.5 ns, lands on slot k + 21) = FIR h(τ)
-  fitted to the train-end probes (`ad_response.ad_term_products`); short reflection (≈ 17-19 ns) = δ at T, ρ fitted on the mean trace after the last bucket
+- Step 2, reflections per AD config (b-free): round trip (RWM ↔ scope over the Heliax, 2 × 198 ns = 21 P − 1.5 ns, lands on bucket k + 21) = FIR h(τ)
+  fitted to the end-of-spill probes (`ad_response.ad_term_products`); short reflection (≈ 17-19 ns) = δ at T, ρ fitted on the mean trace after the last bucket
   (`reflection_models`); per trace D(t) = Y(t) − ρ D(t − T) − (h ⊛ Y)(t − 21 P + 1.5) (`bootstrap_trace`), bucket positions refit on D (`refit_positions`)
-- Step 3: buckets aligned on their positions, averaged per trace into 4 groups (head = slots `FT_HEAD_FIRST`-20, 22-42, 43-63, 64-81; `group_blocks`)
+- Step 3: buckets aligned on their positions, averaged per trace into 4 groups (head = buckets k = 5-19, Groups 1-3 = k = 21-41, 42-62, 63-80; `group_blocks`)
 - Steps 4-5: H (1 MΩ) and correction taps fitted, R_AD per segment (`ft_context`); per group forward fit of agg2 ⊗ R_AD under `AD_B_COND` (`ft_fits`)
 - Step 6: b = amplitude-weighted mixture of the 4 group b (`group_mixture`) ⊗ G(s²) (`b_smear`, `AD_B_S2`); errors = bootstrap (`ft_bootstrap`),
   extraction-choice variants with s² retuned per variant (`ft_systematics`, `s2_tune`), time slices, ripple (`ft_ripple_closure`) → `ft_uncertainty`, `ft_covariance`
@@ -21,18 +21,17 @@ from ad_response import (AD_B_TIE, BIN_NS, N_SLOTS, OV_BINS, AD_SKIP_SLOTS, N_GR
                          AD_TAPS_PROC, AD_B_MIN, fit_ad_taps, fit_ad_h1m, h1m_instrument, bunch_side_rms, _resampler,
                          AD_B_COND, AD_B_S2, AD_TAPS_SHARE, AD_SCOPE_FORM, TAP_LAM, TAP_MU, TAP_SETS, RC_TAU, PAR, _fit_ad_taps_3b, SUB)
 
-FT_HEAD_FIRST = 6                                   # first AD slot (1-based) of the head: slots 1-5 = bucket-filling ramp after the notch
+FT_HEAD_FIRST = 6                                   # first bucket of the head group, 1-based (6 = bucket k = 5): k = 0-4 = bucket-filling ramp after the notch
 FT_RT_TAU = np.arange(-3.0, 15.0 + 1e-9, BIN_NS)    # round-trip FIR lags [ns] after 21 P − 1.5 (< P: no aliasing with the next bunch)
-FT_X = np.arange(-40.0, 130.0, BIN_NS)              # train-end window [ns from the last core bunch]
+FT_X = np.arange(-40.0, 130.0, BIN_NS)              # end-of-spill window [ns from the last core bunch]
 FT_SHORT_T = (14.0, 20.0)                           # short-reflection delay scan [ns]
-# § Forward Fold checks per configuration period (b-free levers on each step of the fold)
-FF_PERIODS = ('Run 1.1', 'Run 1.3', 'Run 2.1', 'Run 2.2')   # periods with AD traces in the fit (Run 1.2 clipped)
-FT_SAVE_PARS = ('sl', 'sr', 'bl', 'br', 'rms_left', 'rms_right', 'rms', 'side_L', 'side_R', 'LmR')   # full-train product: agg2 to the mixture, its per-side RMS, mixture full RMS
+FF_PERIODS = ('Run 1.1', 'Run 1.3', 'Run 2.1', 'Run 2.2')   # AD configs with traces in the extraction (AD config 1.2 clipped)
+FT_SAVE_PARS = ('sl', 'sr', 'bl', 'br', 'rms_left', 'rms_right', 'rms', 'side_L', 'side_R', 'LmR')   # whole-spill product: agg2 to the mixture, its per-side RMS, mixture full RMS
 FT_WIN_SYST = {'lo': 2.25, 'hi': 2.75}                        # window systematic ±0.25 σ_AD around `AD_FWD_N` (b only, taps fixed), kept per side
-FT_FLOOR = 0.01                                               # 'weights' variant: error floor (f · block peak)² of the conditioned fits, b only
+FT_FLOOR = 0.01                                               # 'weights' variant: error floor (f · group peak)² of the conditioned fits, b only
 FT_SCOPE_VAR = ('butter4', 'butter8')                         # 'scope' variants around `AD_SCOPE_FORM` (taps refit, `ad_taps_cond`)
 FT_RFL_VAR = (('round trip × 0.8', dict(s_rt=0.8)), ('round trip × 1.2', dict(s_rt=1.2)), ('round-trip lag −0.05 ns', dict(delta=-0.05)),
-              ('round-trip lag +0.05 ns', dict(delta=0.05)), ('short ρ × 0.5', dict(rho=0.5)), ('short ρ × 1.5', dict(rho=1.5)))   # 'reflection' variants around the current model (all periods at once)
+              ('round-trip lag +0.05 ns', dict(delta=0.05)), ('short ρ × 0.5', dict(rho=0.5)), ('short ρ × 1.5', dict(rho=1.5)))   # 'reflection' variants around the current model (all AD configs at once)
 FT_ERR_GROUPS = ('window', 'weights', 'taps', 'taps procedure', 'hardware', 'echo model', 'scope', 'alignment', 'H(2.1)', 'H skew', 's2', 'reflection', 'ripple', 'time')
 FT_DIAG_GROUPS = ('ripple', 'time')                           # per-segment groups (+ stat): diagonal in the cross-segment covariance
 S2_SCAN = np.arange(0.0, 0.5001, 0.025)                       # s² scan of `s2_tune` [ns²]
@@ -40,13 +39,13 @@ FT_RIPPLE_DONORS = 6                                          # ripple closure: 
 
 
 def group_mask(P, m):
-    """Slots of round-trip group m (`rt_group`) without `AD_SKIP_SLOTS`; group 0 = the head (from `FT_HEAD_FIRST`)."""
+    """Buckets of round-trip group m (`rt_group`) without `AD_SKIP_SLOTS`; group 0 = the head (from `FT_HEAD_FIRST`)."""
     msk = (rt_group(P) == m) & ~np.isin(np.arange(N_SLOTS), AD_SKIP_SLOTS)
     return msk & (np.arange(N_SLOTS) >= FT_HEAD_FIRST - 1) if m == 0 else msk
 
 
 def _overlay(t, s, pos, P, valid):
-    # overlay binning: nearest bucket, BIN_NS bins on ± P/2, per slot → (S, N)
+    # histogram binning: nearest bucket, BIN_NS bins on ± P/2, per bucket → (S, N)
     m = (t >= pos[0] - P / 2) & (t < pos[-1] + P / 2) & valid
     tt, yy = t[m], s[m]
     ii = np.clip(np.searchsorted(pos, tt), 1, len(pos) - 1)
@@ -87,8 +86,8 @@ def _traces(run):
 
 
 def train_end_tails(runs=(1, 2)):
-    """Mean measured trace after the last bucket per configuration period (÷ median bucket amplitude; reference and selection as `_traces`),
-    full `FT_X` window recorded, clipped samples out → {period: dict(y, e, n, P)}."""
+    """Mean measured trace after the last bucket per AD config (÷ median bucket amplitude; reference and traces as `_traces`),
+    full `FT_X` window recorded, clipped samples out → {AD config: dict(y, e, n, P)}."""
     t = np.arange(at.N_SAMPLES) * BIN_NS
     acc = {}
     for run in runs:
@@ -103,7 +102,7 @@ def train_end_tails(runs=(1, 2)):
 
 
 def reflected_train(y, e, P):
-    """Reflected-train template after the train end: Fourier series in k / P (k ≤ 8) fitted on +45 … +130 ns of `FT_X`."""
+    """Reflected-spill template after the end of the spill: Fourier series in k / P (k ≤ 8) fitted on +45 … +130 ns of `FT_X`."""
     K = np.arange(9)
     B = np.c_[np.cos(2 * np.pi * np.outer(FT_X, K) / P), np.sin(2 * np.pi * np.outer(FT_X, K[1:]) / P)]
     m = (FT_X > 45) & np.isfinite(y) & np.isfinite(e) & (e > 0)
@@ -125,7 +124,7 @@ def round_trip_fir(T, period):
 
 
 def short_reflection(tail):
-    """δ short reflection (T, ρ) on a `train_end_tails` entry: residual after the reflected-train template, x = 6 … 45 ns, = ρ · y(x − T) + smooth
+    """δ short reflection (T, ρ) on a `train_end_tails` entry: residual after the reflected-spill template, x = 6 … 45 ns, = ρ · y(x − T) + smooth
     direct tail (1, x^-1/2, x^-3/2); T scanned over `FT_SHORT_T` → dict(T, rho, chi2, ndf)."""
     y, e = tail['y'], tail['e']
     r = y - reflected_train(y, e, tail['P'])
@@ -144,17 +143,17 @@ def short_reflection(tail):
 
 
 def rt_delay(T, period, leftover=0.0):
-    """Fixed round-trip delay of a period [ns] = the probe frame of `round_trip_fir` (21 × median probe P − 1.5, `_term_trace`) + `leftover`
-    (in-train lag left after the bootstrap, slot-22 step): one frame for the h fit and its use."""
+    """Fixed round-trip delay of an AD config [ns] = the probe frame of `round_trip_fir` (21 × median probe P − 1.5, `_term_trace`) + `leftover`
+    (in-spill lag left after the bootstrap, step at bucket k = 21): one frame for the h fit and its use."""
     return 21 * float(np.median(T[period]['P'])) - 1.5 + leftover
 
 
-FT_RT_LEFTOVER = {'Run 2.1': -0.027263}             # in-train round-trip lag left after the bootstrap [ns]
+FT_RT_LEFTOVER = {'Run 2.1': -0.027263}             # in-spill round-trip lag left after the bootstrap [ns]
 
 
 def reflection_models(T, tails, periods, leftover=FT_RT_LEFTOVER):
-    """{period: dict(h (round-trip FIR), short (δ T, ρ))} from the b-free probes; `leftover` ({period: ns}, {} = none) adds the fixed
-    round-trip delay `delay` (`rt_delay`) used by `bootstrap_trace`; None = legacy per-trace 21 P − 1.5."""
+    """{AD config: dict(h (round-trip FIR), short (δ T, ρ))} from the b-free probes; `leftover` ({AD config: ns}, {} = none) adds the fixed
+    round-trip delay `delay` (`rt_delay`) used by `bootstrap_trace`; None = per-trace 21 P − 1.5."""
     out = {pn: dict(h=round_trip_fir(T, pn)[0], short=short_reflection(tails[pn])) for pn in periods if pn in tails and pn in T}
     if leftover is not None:
         for pn, m in out.items():
@@ -171,9 +170,9 @@ def _taps(tau0, h, shift):
 
 
 def bootstrap_trace(s, P, model):
-    """Corrected trace D = Y − ρ D(t − T) − (h ⊛ Y)(t − d); causal blocks < T (the first T of the train has no short reflection); round-trip
-    delay d = `model['delay']` (fixed per period, `rt_delay`) or, without it, the legacy per-trace 21 P − 1.5; optional `model` keys `s_rt`
-    (round-trip scale, default 1) and `delta` (round-trip lag shift [ns], default 0): § Forward Fold checks."""
+    """Corrected trace D = Y − ρ D(t − T) − (h ⊛ Y)(t − d); causal time blocks < T (the first T of the spill has no short reflection); round-trip
+    delay d = `model['delay']` (fixed per AD config, `rt_delay`) or, without it, the per-trace 21 P − 1.5; optional `model` keys `s_rt`
+    (round-trip scale, default 1) and `delta` (round-trip lag shift [ns], default 0): reflection variants of the errors."""
     D = s.copy(); n = len(s)
     d_rt = model['delay'] if 'delay' in model else 21 * P - 1.5
     kr, hr = _taps(FT_RT_TAU[0], model.get('s_rt', 1.0) * model['h'], d_rt + model.get('delta', 0.0))
@@ -209,11 +208,11 @@ def refit_positions(t, D, valid, pos, sig):
 
 
 def ad_waveforms_bootstrap(models, runs=(1, 2), positions='corrected', keep_sub=False):
-    """Per trace × bucket slot overlays of the bootstrap-corrected traces (S, N [trace, slot, bin], amp, period, amp_med, amp_sum, chunk, ts, row) + the corrected train-end tails per period
-    → ({key: W}, {period: dict(y, n)}).
-    - `positions`: 'raw' = overlays on the raw-trace bucket positions (legacy); 'corrected' = positions and period refit on D
-      (`refit_positions`, corrected traces only), W['dpos'] = corrected − raw position per slot
-    - `keep_sub`: W['S_sub'] = overlay sums of the removed part Y − D on the same positions (diagnostics: the subtracted reflections)"""
+    """Per trace × bucket histograms of the bootstrap-corrected traces (S, N [trace, bucket, bin], amp, period, amp_med, amp_sum, chunk, ts, row) + the corrected end-of-spill tails per AD config
+    → ({key: W}, {AD config: dict(y, n)}).
+    - `positions`: 'raw' = histograms on the raw-trace bucket positions; 'corrected' = positions and period refit on D
+      (`refit_positions`, corrected traces only), W['dpos'] = corrected − raw position per bucket
+    - `keep_sub`: W['S_sub'] = histogram sums of the removed part Y − D on the same positions (diagnostics: the subtracted reflections)"""
     t = np.arange(at.N_SAMPLES) * BIN_NS
     out, tl = {}, {}
     for run in runs:
@@ -246,7 +245,7 @@ def ad_waveforms_bootstrap(models, runs=(1, 2), positions='corrected', keep_sub=
 
 
 def group_blocks(d, w):
-    """Segment `d` (`segments.segment_inputs`, one AD config) with its blocks rebuilt from the overlays `w` (corrected or not): one block per round-trip group
+    """Segment `d` (`segments.segment_inputs`, one AD config) with its groups rebuilt from the per-bucket histograms `w` (corrected or not): one group per round-trip group
     (`group_mask`: head from `FT_HEAD_FIRST`), mean ÷ median amplitude ± scatter / √n; `blk_m` = group."""
     g, per = d['grid'], ad_period(w['ts'])
     pn = str(d['blk_period'][0])
@@ -275,7 +274,7 @@ def _mix_on_grid(G, mix):
 
 
 def b_smear(mix, s2, P):
-    """Full-train b of the MC: `group_mixture` result (x₀ frame) ⊗ G(s2) (`AD_B_S2` of the period, periodic on `Grid(P)`), recentred on the mode, moments and agg2 refit;
+    """True bucket b of the MC: `group_mixture` result (x₀ frame) ⊗ G(s2) (`AD_B_S2` of the AD config, periodic on `Grid(P)`), recentred on the mode, moments and agg2 refit;
     s2 = 0 → `mix` unchanged."""
     if not s2:
         return mix
@@ -290,7 +289,7 @@ def group_mixture(P, ps, wt, x0s=None):
     """Amplitude-weighted mixture of per-group agg2 b `ps` (mode at 0) with weights `wt` on `Grid(P)` → dict(tt, ff (density), rms (of the mixture),
     agg2 (σL, σR, β tied or βL / βR per `AD_B_TIE`, fitted to the mixture density), rms_agg2)."""
     G = Grid(P)
-    if x0s is not None:      # x₀ frame: each group's b where the fit placed it in the overlay frame (mean offset removed), recentred on the mixture mode; agg2 refit with a free location
+    if x0s is not None:      # x₀ frame: each group's b where the fit placed it in the stacking frame (mean offset removed), recentred on the mixture mode; agg2 refit with a free location
         w = np.asarray(wt, float); xb = float(np.sum(w * np.asarray(x0s)) / w.sum())
         mix = sum(wi * (lambda d: d / d.sum())(bunch_shape(G, x - xb, p, 'agg2')) for wi, x, p in zip(w, x0s, ps))
         mix = mix / mix.sum()
@@ -306,10 +305,10 @@ def group_mixture(P, ps, wt, x0s=None):
     return dict(tt=G.tf, ff=mix, rms=bunch_rms(dict(tt=G.tf, ff=mix)), agg2=agg, rms_agg2=bunch_rms(agg), **_mix_moments(G.tf, mix))
 
 
-# ---------------- § Forward Fold checks per configuration period ----------------
+# ---------------- traces per segment and their corrected histograms (Steps 2-3, reflection variants) ----------------
 def ff_traces(run):
-    """Raw traces of the analysis segments once per run (selection / tail reference as `_traces`) → {key: [dict(raw (int16), pos, amp, P, chunk,
-    ts, row, last, headroom (`ADC_MAX` − max raw), period)]}: every variant of the fold is rebuilt from these without rereading the store."""
+    """Raw traces of the analysis segments once per run (traces / tail reference as `_traces`) → {key: [dict(raw (int16), pos, amp, P, chunk,
+    ts, row, last, headroom (`ADC_MAX` − max raw), period)]}: every variant is rebuilt from these without rereading the store."""
     out = {}
     with np.load(paths.buckets_npz(run), allow_pickle=True) as bk:
         bsig = bk['bucket_sigma']
@@ -322,8 +321,8 @@ def ff_traces(run):
 
 
 def ff_overlays(trs, model, refit=False):
-    """Steps F1-F3 for one variant: baseline, bootstrap (`bootstrap_trace`, `model` None = uncorrected), overlay per slot (`_overlay`)
-    → (W as `ad_waveforms_bootstrap` + headroom, train end: dict(n, rms (+45 … +130 ns), y17 (16.5-17.5 ns)) of the corrected mean trace);
+    """Steps 2-3 for one variant: baseline, bootstrap (`bootstrap_trace`, `model` None = uncorrected), histogram per bucket (`_overlay`)
+    → (W as `ad_waveforms_bootstrap` + headroom, end of the spill: dict(n, rms (+45 … +130 ns), y17 (16.5-17.5 ns)) of the corrected mean trace);
     `refit`: positions and period refit on the corrected trace (`refit_positions`, as `ad_waveforms_bootstrap(positions='corrected')`; reflection variants of the errors)."""
     t = np.arange(at.N_SAMPLES) * BIN_NS
     W = {n: [] for n in ('S', 'N', 'amp', 'period', 'amp_med', 'amp_sum', 'chunk', 'ts', 'row', 'headroom')}
@@ -345,7 +344,7 @@ def ff_overlays(trs, model, refit=False):
     return W, dict(n=len(tl), rms=float(np.sqrt(np.nanmean(y[FT_X > 45] ** 2))), y17=float(np.nanmean(y[(FT_X > 16.5) & (FT_X < 17.5)])))
 
 
-# ---------------- full-train b: context, fits, uncertainty ----------------
+# ---------------- true bucket b: context, fits, uncertainty ----------------
 def b_mean_mode(p):
     """Mean of the agg2 b `p` − its mode x₀ [ns], analytic (unwrapped)."""
     a = [p[s] * 2 ** (1 / p[b]) * gamma(1 + 1 / p[b]) for s, b in (('sl', 'bl'), ('sr', 'br'))]
@@ -354,7 +353,7 @@ def b_mean_mode(p):
 
 
 def block_centroids(d, K, n=AD_FWD_N):
-    """Per block: centroid of the block in the AD fit window − mean of its kernel R_AD → the frame of the mean of b (position condition of `ad_fit_cond`) [ns]."""
+    """Per group: centroid of the group in the AD fit window − mean of its kernel R_AD → the frame of the mean of b (position condition of `ad_fit_cond`) [ns]."""
     g = d['grid']
     lo, hi = ad_window(d, n)
     m = (g.x >= lo) & (g.x <= hi)
@@ -367,8 +366,8 @@ def _cond_p(rho, bl, br, sr):
 
 
 def ad_fit_cond(d, K, cond, starts, n=AD_FWD_N):
-    """agg2 b ⊗ R_AD on the blocks of `d` under the conditions `cond` (`AD_B_COND`), diagonal χ² over ±n σ_AD, lowest χ² of `starts` (`cond_starts`) → dict(ps, x0, A, M, chi, npar, nx, cent).
-    Parameters ρ = σL / σR, βL, βR (shared or per block), σR, x₀ (`pos` set: mean of b, x₀ = mean − `b_mean_mode`), A per block."""
+    """agg2 b ⊗ R_AD on the groups of `d` under the conditions `cond` (`AD_B_COND`), diagonal χ² over ±n σ_AD, lowest χ² of `starts` (`cond_starts`) → dict(ps, x0, A, M, chi, npar, nx, cent).
+    Parameters ρ = σL / σR, βL, βR (shared or per group), σR, x₀ (`pos` set: mean of b, x₀ = mean − `b_mean_mode`), A per group."""
     g, Y, E = d['grid'], d['blk_Y'], d['blk_E']
     nbk = len(Y)
     lo, hi = ad_window(d, n)
@@ -412,14 +411,14 @@ def ad_fit_cond(d, K, cond, starts, n=AD_FWD_N):
             best = r
     ps, x0, A = unpack(best.x)
     M = np.array([model(i, ps[i], x0[i], A[i]) for i in range(nbk)])
-    shp = np.r_[np.arange(nsh), nsh + 3 * np.arange(nbk)]      # ρ, βL, βR (shared or per block), σR per block
+    shp = np.r_[np.arange(nsh), nsh + 3 * np.arange(nbk)]      # ρ, βL, βR (shared or per group), σR per group
     sflag = bool(np.abs(first.x[shp] - best.x[shp]).max() > 0.03)   # the first (warm) start ended on a different b than the best start
     return dict(ps=ps, x0=x0, A=A, M=M, chi=[float((((Y[i] - M[i]) / E[i])[mk] ** 2).sum()) for i in range(nbk)], npar=best.x.size, nx=int(mk.sum()), cent=cent, wA=(lo, hi),
                 start_flag=sflag)
 
 
 def cond_starts(base, cond):
-    """Starts of `ad_fit_cond` from the per-block fits `base` (list of dict(p, x0, A)): base (warm), production `PAR`, mirrored, `FT_START_*` grid in units of the block b RMS; x₀, A from `base` (shared: medians of ρ, β)."""
+    """Starts of `ad_fit_cond` from the per-group fits `base` (list of dict(p, x0, A)): base (warm), nominal `PAR`, mirrored, `FT_START_*` grid in units of the group b RMS; x₀, A from `base` (shared: medians of ρ, β)."""
     sh, nbk = cond['shared'], len(base)
     lim = lambda r, a, b: (min(max(r, 0.05), cond['rmax']), *[min(max(v, cond['beta'][0]), cond['beta'][1]) for v in (a, b)])
     x0, A, rg = [b['x0'] for b in base], [b['A'] for b in base], [bunch_rms(b['p']) for b in base]
@@ -440,7 +439,7 @@ def cond_starts(base, cond):
 
 
 def cond_pins(p, x0, cent, cond, tol=1e-3):
-    """Names of the conditions a block's b sits on (within `tol`): 'bl_lo', 'br_hi', 'rho', 'pos', …"""
+    """Names of the conditions a group's b sits on (within `tol`): 'bl_lo', 'br_hi', 'rho', 'pos', …"""
     a = [f'{n}_{e}' for n in ('bl', 'br') for e, v in (('lo', cond['beta'][0]), ('hi', cond['beta'][1])) if abs(p[n] - v) < tol]
     a += ['rho'] if abs(p['sl'] / p['sr'] - cond['rmax']) < tol else []
     return a + (['pos'] if cond['pos'] is not None and abs(x0 + b_mean_mode(p) - cent) > cond['pos'] - tol else [])
@@ -482,7 +481,7 @@ def ad_taps_cond(head, keys, rt, cond=AD_B_COND, lam=TAP_LAM, mu=TAP_MU, scope=A
 
 
 def ft_context(data, wb, keys=None, fitted=None):
-    """Steps F4-F5 of the full train: group blocks from the corrected overlays `wb` (`group_blocks`), corrected heads, H refit on the corrected
+    """Steps 3-4: groups from the corrected per-bucket histograms `wb` (`group_blocks`), corrected heads, H refit on the corrected
     handle heads (`fit_ad_h1m`; R_AD uses H as fitted, `h1m_instrument`), taps refit on the corrected heads (`fit_ad_taps`, shared 50 Ω `AD_TAPS_SHARE`, then `ad_taps_cond`), kernels `KF` (no reflection term), mixture weights `WTG`
     (AD bucket amplitude per group, all traces of the segment) → dict; `fitted` = dict(HF, RTF) of a previous call (`F_AD_FT_FITS`): no H / taps refit"""
     keys = SEGMENTS if keys is None else keys
@@ -504,8 +503,8 @@ FT_START_BET = ((2, 2), (1.3, 4), (4, 1.3))                                     
 
 
 def best_group_fit(dm, km, n=AD_FWD_N, q0=None):
-    """`ad_fit_fwd` with the multi-start policy, lowest χ²: `q0` None (nominal) = production start, mirrored, 15-point grid;
-    `q0` given (systematic variants, bootstrap) = warm start and production start, `start_flag` = they ended on different b (σ, β differ by > 0.03)."""
+    """`ad_fit_fwd` with the multi-start policy, lowest χ²: `q0` None (nominal) = nominal start, mirrored, 15-point grid;
+    `q0` given (systematic variants, bootstrap) = warm start and nominal start, `start_flag` = they ended on different b (σ, β differ by > 0.03)."""
     f0 = ad_fit_fwd(dm, km, n)
     if q0 is not None:
         fw = ad_fit_fwd(dm, km, n, q0=q0)
@@ -524,7 +523,7 @@ def best_group_fit(dm, km, n=AD_FWD_N, q0=None):
 
 
 def floored(d, f):
-    """Blocks of `d` with the error floor E_eff² = E² + (f · block peak)² ('weights' variant of the errors)."""
+    """Groups of `d` with the error floor E_eff² = E² + (f · group peak)² ('weights' variant of the errors)."""
     pk = np.asarray(d['blk_Y']).max(1)
     return dict(d, blk_E=np.sqrt(np.asarray(d['blk_E']) ** 2 + (f * pk[:, None]) ** 2))
 
@@ -536,9 +535,9 @@ def mean_offsets(P, ps):
 
 
 def ft_fits(ctx, k, K=None, d=None, wt=None, n=AD_FWD_N, q0=None, cond=AD_B_COND, s2=None, floor=0.0, align='x0'):
-    """Steps F6-F8 for segment `k`: agg2 ⊗ R_AD per group at ±`n` σ_AD under `cond` (`ad_cond_fits`, warm starts = free fits `best_group_fit`), mixture
+    """Steps 5-6 for segment `k`: agg2 ⊗ R_AD per group at ±`n` σ_AD under `cond` (`ad_cond_fits`, warm starts = free fits `best_group_fit`), mixture
     of the group b (`group_mixture`, weights `wt`) ⊗ G(s2) (`b_smear`) → dict(fg, mix, mix_ad (before the smear), s2);
-    `K` / `d` / `wt` default to the nominal context; `s2` None = `AD_B_S2` of the period; error variants: `floor` (error floor of the conditioned fits, `floored`; start fits unfloored),
+    `K` / `d` / `wt` default to the nominal context; `s2` None = `AD_B_S2` of the AD config; error variants: `floor` (error floor of the conditioned fits, `floored`; start fits unfloored),
     `align` 'x0' (nominal: x₀ frame) or 'mean' (each group's mean at 0, `mean_offsets`)"""
     K = ctx['KF'][k] if K is None else K
     d = ctx['DSF'][k] if d is None else d
@@ -553,7 +552,7 @@ def ft_fits(ctx, k, K=None, d=None, wt=None, n=AD_FWD_N, q0=None, cond=AD_B_COND
 
 
 def ft_values(mix):
-    """Saved full-train parameters (`FT_SAVE_PARS`) of a `group_mixture` result: agg2 to the mixture, its per-side RMS, the mixture's full RMS."""
+    """Saved whole-spill parameters (`FT_SAVE_PARS`) of a `group_mixture` result: agg2 to the mixture, its per-side RMS, the mixture's full RMS."""
     a = mix['agg2']
     l, r = bunch_side_rms(a)
     return dict(sl=a['sl'], sr=a['sr'], bl=a['bl'], br=a['br'], rms_left=l, rms_right=r, rms=mix['rms'], side_L=mix['side_L'], side_R=mix['side_R'], LmR=mix['LmR'])
@@ -573,8 +572,8 @@ def _ft_block(d, prof, idx):
 
 
 def ft_bootstrap(ctx, wb, fits, n_boot=AD_BOOT, seed=0, level='auto'):
-    """Statistical error of the full-train b: per resample the traces of every segment are redrawn (chunk level, trace level below
-    `AD_BOOT_MIN_CHUNKS`), group blocks rebuilt, H refit on the resampled corrected handle heads (warm start), per-group b refit (warm start),
+    """Statistical error of the true bucket b: per resample the traces of every segment are redrawn (chunk level, trace level below
+    `AD_BOOT_MIN_CHUNKS`), groups rebuilt, H refit on the resampled corrected handle heads (warm start), per-group b refit (warm start),
     mixture with the resampled amplitude weights → {key: array [n_boot, `FT_SAVE_PARS`]}; taps fixed (their choice is a systematic)."""
     rng = np.random.default_rng(seed)
     keys = ctx['keys']
@@ -595,7 +594,7 @@ def ft_bootstrap(ctx, wb, fits, n_boot=AD_BOOT, seed=0, level='auto'):
     return {k: np.array(v) for k, v in out.items()}
 
 
-# ---------------- s² tune (Run 2.1 width; port of the 11-12 scratch `sa_ref5.py`) ----------------
+# ---------------- s² tune (AD config 2.1 width) ----------------
 def _s2_mom(x, y, W):
     # windowed moments ±W about the iterated centroid → dict(var, LmR, m3, m4, n)
     c = x[np.argmax(y)]
@@ -642,7 +641,7 @@ def _s2_dnu(tt, ff, dn):
 
 
 def s2_tune(mix, inp, tuned, scan=S2_SCAN):
-    """One s² for the `tuned` segments (the `AD_B_S2` periods: Run 2.1 wide, normal_a, narrow) from the pre-smear full-train b `mix` {key: dict(tt, ff)}:
+    """One s² for the `tuned` segments (the `AD_B_S2` AD configs: AD config 2.1 wide, normal_a, narrow) from the pre-smear true bucket b `mix` {key: dict(tt, ff)}:
     implied σ_det² per segment (b ⊗ D_ν ⊗ G vs the SBND AD-matched ±2.5σ windowed variance, native bins); reference = error-weighted mean over the other
     (50 Ω, s² = 0) segments, w = 1 / (SBND evar² + AD-stat²) (frozen `inp['ead']`); s² = zero of the mean (implied − reference) of the tuned segments along `scan`
     → dict(s2 (NaN: no sign change), per {seg: own zero}, ref, ref_err, chi2, ok)."""
@@ -666,7 +665,7 @@ def s2_tune(mix, inp, tuned, scan=S2_SCAN):
 # ---------------- errors: extraction-choice variants, bootstrap, ripple ----------------
 def taps_variants_cond(head, keys, rt):
     """Taps systematic under the b conditions (`ad_taps_cond` after every refit, as `ft_context`): 'strong' / 'from5' (`TAP_SETS`), 'leave-one-period-out'
-    (each shared 50 Ω period with the taps fitted on the group's other periods) → {name: {period: set}}."""
+    (each shared 50 Ω AD config with the taps fitted on the group's other AD configs) → {name: {AD config: set}}."""
     out = {}
     for n in ('strong', 'from5'):
         kw = TAP_SETS[n]
@@ -686,13 +685,13 @@ def taps_variants_cond(head, keys, rt):
 
 
 def ft_systematics(ctx, data, wb, fits, hw_var, echo_variants, n_slices, s2in, traces=None, rmod=None, log=print):
-    """Extraction-choice variants of the full-train b. Every model variant refits all segments it touches (warm starts from `fits`), then retunes the Run 2.1 s²
+    """Extraction-choice variants of the true bucket b. Every model variant refits all segments it touches (warm starts from `fits`), then retunes the AD config 2.1 s²
     (`s2_tune`) against that variant's own 50 Ω reference; Δ is taken against the nominal retuned by the same code (`ref`).
     - window: `FT_WIN_SYST` lo / hi (b only); weights: `FT_FLOOR` (b only); taps: `taps_variants_cond`; taps procedure: 'joint' `fit_ad_taps`;
       hardware: `hw_var` {name: [dict(bl, ec) × nominal]} (taps fixed); echo model: `echo_variants` {name: echoes} (taps refit + `ad_taps_cond`);
       scope: `FT_SCOPE_VAR` (taps refit + `ad_taps_cond`); alignment: mean-aligned mixture; H(2.1): τ_in `AD_H1M_TAU_VAR`, `AD_H1M_NECHO_VAR` echoes;
       H skew: H refit with the k3 nuisance; s2: the lowest / highest per-segment zero of the nominal tune (smear only);
-      reflection (`traces` = `ff_traces`, `rmod` = `reflection_models`): `FT_RFL_VAR` on every period at once, overlays with positions refit, then H and taps refit (`ft_context`)
+      reflection (`traces` = `ff_traces`, `rmod` = `reflection_models`): `FT_RFL_VAR` on every AD config at once, histograms with positions refit, then H and taps refit (`ft_context`)
     - time: `n_slices` chunk slices per segment, s² = `AD_B_S2` (per segment, no retune); bootstrap and ripple: separate (`ft_bootstrap`, `ft_ripple_closure`)
     → dict(nominal (tune), ref {key: values}, variants [dict(group, name, side, s2, s2_ok, vals {key: values}, pins {key: [pins per group]}, start {key: bool})], slc)"""
     keys = ctx['keys']
@@ -760,13 +759,13 @@ def ft_systematics(ctx, data, wb, fits, hw_var, echo_variants, n_slices, s2in, t
     for form in FT_SCOPE_VAR:
         rt = ad_taps_cond(HEAD, keys, fit_ad_taps(HEAD, keys, scope=form), scope=form)
         record('scope', form, refit(K=kern(rt)))
-    if traces is not None:      # full production chain per variant: corrected overlays → blocks, weights, H and taps refit (`ft_context`) → b → s²
+    if traces is not None:      # full chain per variant: corrected histograms → groups, weights, H and taps refit (`ft_context`) → b → s²
         for nm, v in FT_RFL_VAR:
             wv = {}
             for k in keys:
                 pn = pn_of[k]
                 mdl = dict(rmod[pn], short=dict(rmod[pn]['short'], rho=v.get('rho', 1.0) * rmod[pn]['short']['rho']), **{a: b for a, b in v.items() if a != 'rho'})
-                wv[k] = ff_overlays(traces[k], mdl, refit=True)[0]      # all traces: `group_blocks` keeps the block period, WTG sums every trace (= production)
+                wv[k] = ff_overlays(traces[k], mdl, refit=True)[0]      # all traces: `group_blocks` keeps the AD config of the segment, WTG sums every trace
             cv = ft_context(data, wv, keys)
             record('reflection', nm, {k: ft_fits(cv, k, q0=q0[k], s2=0.0) for k in keys})
             hp, hp0 = cv['HF']['p'], ctx['HF']['p']
@@ -789,7 +788,7 @@ def ft_systematics(ctx, data, wb, fits, hw_var, echo_variants, n_slices, s2in, t
 
 def ft_ripple_closure(ctx, fits, n_donor=FT_RIPPLE_DONORS, seed=11):
     """Pull of the ~2 ns ripple on the group b (diagonal χ², `ad_fit_fwd` at ±`AD_FWD_N`): truth = each group's nominal fit; injected = the in-window
-    residual of a group (1-3) of another segment, resampled in units of its b RMS onto the target RMS and scaled to the target's residual rms, + block
+    residual of a group (1-3) of another segment, resampled in units of its b RMS onto the target RMS and scaled to the target's residual rms, + group
     noise → refit → {key: dict(rms, rms_left, rms_right: rms of the bias over groups × donors)}"""
     rng = np.random.default_rng(seed)
     keys = ctx['keys']
@@ -858,7 +857,7 @@ def ft_uncertainty(nominal, syst, boot, ripple):
 
 
 def ft_covariance(syst, unc, keys, pars=FT_SAVE_PARS):
-    """Cross-segment covariance of the full-train b errors: per systematic group ρ_ij from the signed variant shifts, Σ_v Δ_v,i Δ_v,j normalised
+    """Cross-segment covariance of the true bucket b errors: per systematic group ρ_ij from the signed variant shifts, Σ_v Δ_v,i Δ_v,j normalised
     (0 where a segment does not move), cov_ij = ρ_ij σ_i σ_j with σ = the table's group error (`unc`; window = the larger side); stat, ripple and time diagonal
     → {p: dict(cov [n, n] (diagonal = `_tot`²), rho {group: [n, n]})}, keys order = `keys`."""
     grp = [g for g in FT_ERR_GROUPS if g not in FT_DIAG_GROUPS]
@@ -908,7 +907,7 @@ def load_npz(path):
 
 
 def save_tails(path, tails):
-    """`train_end_tails` result {period: {field: value}} → npz keyed 'period|field'."""
+    """`train_end_tails` result {AD config: {field: value}} → npz keyed 'period|field'."""
     np.savez(path, **{f'{pn}|{n}': np.asarray(v) for pn, d in tails.items() for n, v in d.items()})
 
 
