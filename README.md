@@ -13,12 +13,14 @@ true_bucket/
   true_bucket.ipynb    Steps 2-6: reflections removed, 4 groups, R_AD, forward fit → b per segment
   errors.ipynb         Step 6 item 3: total errors of b + cross-segment covariance
   results.ipynb        results table and figure (tech note Tab. / Fig. "Extraction Results")
+  figures.ipynb        tech note figures of Steps 1-6 and the appendix (every AD config and segment)
 lib/
   ad_trace.py          IFBeam queries, raw-trace store, Step 1 trace fit
   segments.py          time chunks and segments from the calibration CSV, traces per segment
   ad_response.py       R_AD (cable, scope, echoes, taps, 1 MΩ H), true-bucket shape, forward fit
   true_bucket.py       Steps 2-6 over the whole spill, errors, products on disk
   plot_helpers.py      figures: segment colours, style
+  step_figures.py      tech note figures of the extraction steps (`figures.ipynb`)
   paths.py             input / output paths (`set_paths`), CSV writer
 inputs/
   traces_run{1,2}.csv  every stored trace key (run, event, ts_ns, status); `fit_row` ≥ 0 = trace of the extraction, in fit order
@@ -61,13 +63,14 @@ First set the paths at the top of each notebook's Setup cell ("Set these paths")
 | `trace_fits` | `STORE`, `OUT_DIR` |
 | `true_bucket`, `errors` | `STORE`, `CALIB_CSV`, `OUT_DIR` |
 | `results` | `CALIB_CSV`, `OUT_DIR` |
+| `figures` | `STORE`, `CALIB_CSV`, `OUT_DIR` |
 
 - `STORE` and `CALIB_CSV` are placeholders (`/path/to/…`) and must be set; `OUT_DIR` defaults to `<repo>/output` and must be the same in all notebooks
 - Then:
 
 ```bash
 cd true_bucket
-for nb in trace_fits true_bucket errors results; do
+for nb in trace_fits true_bucket errors results figures; do
     jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 $nb.ipynb
 done
 ```
@@ -79,6 +82,7 @@ done
 | `true_bucket` | ~10 min | 2.1 GB | `OUT_DIR/true_bucket_density.npz` + caches (`ad_term.npz`, `end_of_spill.npz`, `corrected_histograms.npz`, `true_bucket_fits.pkl`) |
 | `errors` | ~45 min | 0.8 GB | `OUT_DIR/true_bucket.csv`, `true_bucket_cov.npz`, `errors_progress.log` |
 | `results` | ~5 s | 0.3 GB | `OUT_DIR/figures/true_bucket_results.png` |
+| `figures` | ~2 min | 2.3 GB | `OUT_DIR/figures/ad_*.png` (needs `trace_fits`, `true_bucket`) |
 
 Run order as listed; each notebook reads the outputs of the ones before it.
 
