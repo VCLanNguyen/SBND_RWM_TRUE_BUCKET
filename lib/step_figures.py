@@ -371,7 +371,7 @@ def fig_step5(I, keys, out, name):
             ax.set_xlim(*XLIM)
     for r0 in range(0, 3 * nb, 3):
         axes[r0, 0].set_ylabel('Amplitude [a.u.]')
-        axes[r0 + 1, 0].set_ylabel('Stacked groups\n/ model')
+        axes[r0 + 1, 0].set_ylabel('Data / model')
         axes[r0 + 2, 0].set_ylabel('Pull')
     finish(fig, out, name)
 
