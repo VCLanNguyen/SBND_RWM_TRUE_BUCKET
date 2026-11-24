@@ -76,7 +76,7 @@ done
 |---|---|---|---|
 | `fetch_traces` | not timed (~35 k IFBeam queries at ~40 / s for an empty store) | not measured | `STORE` (missing keys only) |
 | `trace_fits` | ~3.5 min | 1.4 GB | `OUT_DIR/run{1,2}/trace_fits.csv`, `trace_buckets.npz` |
-| `true_bucket` | ~10 min | 2.1 GB | `OUT_DIR/true_bucket_density.npz` + caches (`ad_term.npz`, `train_end.npz`, `corrected_overlays.npz`, `true_bucket_fits.pkl`) |
+| `true_bucket` | ~10 min | 2.1 GB | `OUT_DIR/true_bucket_density.npz` + caches (`ad_term.npz`, `end_of_spill.npz`, `corrected_histograms.npz`, `true_bucket_fits.pkl`) |
 | `errors` | ~45 min | 0.8 GB | `OUT_DIR/true_bucket.csv`, `true_bucket_cov.npz`, `errors_progress.log` |
 | `results` | ~5 s | 0.3 GB | `OUT_DIR/figures/true_bucket_results.png` |
 
@@ -89,7 +89,7 @@ Run order as listed; each notebook reads the outputs of the ones before it.
 
 | Column | Meaning |
 |---|---|
-| `run`, `seg`, `period`, `head_first` | segment, its AD config, first bucket of the head group (1-based: 6 = bucket k = 5) |
+| `run`, `seg`, `ad_config`, `head_first` | segment, its AD config (1.1, 1.3, 2.1, 2.2), first bucket of the head group (1-based: 6 = bucket k = 5) |
 | `sl`, `sr`, `bl`, `br` | shape of b: σL, σR [ns], βL, βR (agg2 fitted to the mixture) |
 | `rms`, `rms_left`, `rms_right` | RMS of b, and per side [ns] |
 | `side_L`, `side_R`, `LmR` | side RMS about the mean [ns], 2 × left − 2 × right semi-variance [ns²] |
@@ -105,5 +105,5 @@ Run order as listed; each notebook reads the outputs of the ones before it.
 ## Changing the extraction
 
 - Segments and time chunks: in SBND_RWM_CALIBRATION (then rerun from `true_bucket`); segment number → name: `lib/segments.py` `SEGMENT_NAMES`
-- AD configs (dates, scope input): `AD_PERIODS`, `AD_TERMINATION` in `lib/ad_response.py`
+- AD configs (dates, scope input): `AD_CONFIGS`, `AD_TERMINATION` in `lib/ad_response.py`
 - Fit window, b conditions, s²: `AD_FWD_N`, `AD_B_COND`, `AD_B_S2` in `lib/ad_response.py`; error variants: `FT_*` constants in `lib/true_bucket.py`, Setup cell of `errors.ipynb`

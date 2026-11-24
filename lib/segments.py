@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 import paths
-from ad_response import SEGMENTS, MIN_AD, AD_MAX_CLIPPED, AD_PERIODS, ad_period, Grid
+from ad_response import SEGMENTS, MIN_AD, AD_MAX_CLIPPED, AD_CONFIGS, ad_config, Grid
 
 SEGMENT_NAMES = {1: {1: 'before_a', 2: 'before_b', 3: 'before_c', 4: 'during', 5: 'after'},
                  2: {1: 'wide', 2: 'normal_a', 3: 'normal_b', 4: 'narrow'}}
@@ -48,13 +48,13 @@ def select_chunks(run, ad_only=True):
 
 
 def segment_inputs(chunks):
-    """Per segment: period P and its `Grid`, AD config (`blk_period`, one per segment), trace times and σ (`ad_ts`, `ad_sigma`: the fit window)."""
+    """Per segment: period P and its `Grid`, AD config (`grp_config`, one per segment), trace times and σ (`ad_ts`, `ad_sigma`: the fit window)."""
     out = {}
     for key, ch in chunks.items():
         ts = ch['ad']['ts'].values
-        n = pd.Series(ad_period(ts)).value_counts()
-        pns = [pn for pn in AD_PERIODS if n.get(pn, 0) >= MIN_AD]
+        n = pd.Series(ad_config(ts)).value_counts()
+        pns = [pn for pn in AD_CONFIGS if n.get(pn, 0) >= MIN_AD]
         assert len(pns) == 1, f'{key}: one AD config per segment, found {dict(n)}'
         P = np.float64(ch['P'])
-        out[key] = dict(P=P, grid=Grid(P), blk_period=np.array([pns[0]]), ad_ts=ts, ad_sigma=ch['ad']['sigma'].values)
+        out[key] = dict(P=P, grid=Grid(P), grp_config=np.array([pns[0]]), ad_ts=ts, ad_sigma=ch['ad']['sigma'].values)
     return out

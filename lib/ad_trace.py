@@ -412,7 +412,7 @@ def _fit_bucket(t, s, valid, p, half, model):
     return popt, perr
 
 
-def overlay_profile(t, s, positions, period, valid=None, bin_ns=0.16):
+def stacked_profile(t, s, positions, period, valid=None, bin_ns=0.16):
     """Mean waveform vs time to the nearest bucket position, ±period/2 (the waveform analogue of the SBND stacked bunch).
     - `valid`: sample mask (clipped samples left out of the mean)
     """
@@ -509,7 +509,7 @@ def fit_trace(samples, trailer, model='sym'):
     if period_chi2ndof > MAX_PERIOD_CHI2NDOF:
         raise ValueError('bucket index slip')
 
-    ox, oy, on = overlay_profile(t, s, pos, period, valid)
+    ox, oy, on = stacked_profile(t, s, pos, period, valid)
     osym, oc, om = _fit_gaussian_windowed(ox, oy, oy, [0, oy.max(), 0, 1.5], WINDOW_SIGMA)
     oasym, oac = _fit_asym_gaussian(ox, oy, oy, om, osym)
 
@@ -519,8 +519,8 @@ def fit_trace(samples, trailer, model='sym'):
         sigma=abs(osym[3]), sigma_err=np.sqrt(oc[3, 3]),
         sigma_l=abs(oasym[3]), sigma_l_err=np.sqrt(oac[3, 3]), sigma_r=abs(oasym[4]), sigma_r_err=np.sqrt(oac[4, 4]),
         skew=abs(oasym[4]) - abs(oasym[3]),
-        overlay_H=osym[0], overlay_amp=osym[1], overlay_center=osym[2],
-        overlay_asym_H=oasym[0], overlay_asym_amp=oasym[1], overlay_asym_center=oasym[2],
+        stacked_H=osym[0], stacked_amp=osym[1], stacked_center=osym[2],
+        stacked_asym_H=oasym[0], stacked_asym_amp=oasym[1], stacked_asym_center=oasym[2],
         bucket_sigma_mean=np.mean(popts[:, 3] if model == 'sym' else popts[:, 3:5].mean(axis=1)),
         amp_median=np.median(popts[:, 1]), rms=rms,
     )
