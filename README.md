@@ -98,7 +98,7 @@ Run order as listed; each notebook reads the outputs of the ones before it.
 | `rms`, `rms_left`, `rms_right` | RMS of b, and per side [ns] |
 | `side_L`, `side_R`, `LmR` | side RMS about the mean [ns], 2 × left − 2 × right semi-variance [ns²] |
 | `<value>_stat` | bootstrap error |
-| `<value>_<group>` | error per extraction choice: `window`, `weights`, `taps`, `taps procedure`, `hardware`, `echo model`, `scope`, `alignment`, `H(2.1)`, `H skew`, `s2`, `reflection`, `ripple` (RMS only), `time` |
+| `<value>_<group>` | error per source, in the tech note order: extraction choices `reflection`, `hardware`, `scope`, `echo model`, `taps`, `taps procedure`, `H(2.1)`, `H skew`, `window`, `weights`, `alignment`; then `s2`, `time`, `ripple` (RMS only) |
 | `<value>_window_lo`, `_window_hi` | window error per side; `_window` = the larger |
 | `<value>_tot` (`_tot_lo`, `_tot_hi`) | total error, all of the above in quadrature (window per side) |
 | `time_flag`, `pins_flag`, `start_flag`, `s2_fail` | time scatter > statistics; variants with a b condition at a different bound; variants whose two fit starts disagree; variants whose s² retune failed |

@@ -439,7 +439,7 @@ def fig_step6(I, keys, out, name):
         ax.plot(fw['tt'], fw['ff'] / pk_, color=SEG_COLORS[k[1]], lw=1.6, label=f"$b$: RMS {fw['rms']:.3f} ns")
         print(f"Step 6 {title(k)}: w = {np.round(wt, 2)}, group RMS = {[round(float(bunch_rms(fg['p'])), 3) for fg in f['fg']]}, "
               f"b RMS {fw['rms']:.3f}, s2 {f['s2']}")
-        ax.set(ylim=(0, 1.25), xlim=(-5, 12), title=title(k), xlabel='$t$ $-$ mode of $b$ [ns]')
+        ax.set(ylim=(0, 1.25), xlim=(-5, 12), title=title(k), xlabel='Time from the mode of $b$ [ns]')
         ax.legend(loc='upper right')
     for r_ in range(nr):
         axes[r_, 0].set_ylabel('Amplitude [a.u.]')
